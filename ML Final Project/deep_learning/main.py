@@ -3,12 +3,17 @@ import tensorflow as tf
 import PIL as pil
 import os
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import LabelBinarizer
 from sklearn.preprocessing import MultiLabelBinarizer
+from collections import Counter
+import pandas
+
+from sklearn.metrics import r2_score
 
 batchsize = 64
-image_width = 150
-image_height = 150
-categories = 6
+image_width = 200
+image_height = 200
+
 classes = ['healthy', 'complex', 'scab', 'rust', 'powdery_mildew', 'frog_eye_leaf_spot']
 
 def load_resize_images(file, n0, n):
@@ -17,10 +22,21 @@ def load_resize_images(file, n0, n):
     file_list = file_list[n0:n]
     images = []
     for img in file_list:
+        tempImage = pil.Image.open(os.path.join(file, img))
+        imageBox = tempImage.getbbox()
+        cropped = tempImage.crop(imageBox)
+        # splits the image into separate RGB channels
+        r, g, b = tempImage.split()
+        # creates a new image with only the red channel
+        redscale = pil.Image.merge("RGB",
+                                   (r, pil.Image.new("L", cropped.size, 50), pil.Image.new("L", cropped.size, 200)))
         # loads single image into greyscale array
-        data = np.array((pil.Image.open(os.path.join(file,img)).convert('L')).resize((200,200)).crop((25, 25, 175, 175)))
-        # adds to list
-        images.append(data/200)
+        data = np.array((redscale.convert('L')).resize((250, 250)).crop((25, 25, 225, 225)))
+
+        data = data/255
+        # plt.imshow(data, cmap=plt.get_cmap('gray'))
+        # plt.show()
+        images.append(data)
 
     np_images = np.array(images)
     return np_images
@@ -29,39 +45,55 @@ def load_labels(labels, n0, n):
     #load data into numpy array
     arr = np.loadtxt(labels, delimiter=",", dtype=str)
     #get just first n labels
-    labels = (arr[1:arr.shape[0],1])[n0:n]
+    labels = ((arr[1:arr.shape[0],1])[n0:n])
+
     # seperate labels by category make list
-    labels = (np.char.split(labels, sep = ' ')).tolist()
+    labels = (np.char.split(labels, sep=' ')).tolist()
+    raw_labels = labels
     one_hot = MultiLabelBinarizer()
     onehot_labels = one_hot.fit_transform(labels)
+    # one_hot = LabelBinarizer()
+    # onehot_labels = one_hot.fit_transform(labels)
     classes = one_hot.classes_
 
 
     
-    return classes, onehot_labels
+    return classes, onehot_labels, raw_labels
 
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    train_images = load_resize_images("plant-pathology-2021-fgvc8/train_images", 0, 100)
-    classes, train_labels = load_labels("plant-pathology-2021-fgvc8/train.csv", 0, 100)
+    n = 400
+    classes, train_labels, raw_labels = load_labels("plant-pathology-2021-fgvc8/train.csv", 0, n)
+    categories = len(classes)
 
-    model = tf.keras.Sequential([tf.keras.layers.Flatten(input_shape=(image_width, image_height)),
-                                 tf.keras.layers.Dense(128, activation='relu'),
-                                 tf.keras.layers.Dense(128, activation='relu'),
-                                 tf.keras.layers.Dense(128, activation='relu'),
-                                 tf.keras.layers.Dense(128, activation='relu'),
-                                 tf.keras.layers.Dense(128, activation='relu'),
-                                 tf.keras.layers.Dense(categories)])
+    # data = tuple(raw_labels)
+    # count = Counter(data)
+    # df = pandas.DataFrame.from_dict(count, orient='index')
+    # df.plot(kind='bar')
+    # plt.show()
 
-    model.compile(optimizer='adam', loss='mean_squared_error',  metrics=['mean_squared_error'])
+    train_images = load_resize_images("C:/Users/julpo/Desktop/train_images", 0, n)
+    # # Softmax
+    # model = tf.keras.Sequential(tf.keras.layers.Flatten(input_shape=(image_width, image_height)))
+    # model.add(tf.keras.layers.Dense(categories, activation='softmax'))
+    # model.compile(optimizer='sgd', loss='categorical_crossentropy', metrics=['categorical_accuracy'])
 
-    model.fit(train_images, train_labels, epochs=10)
+    # 4 LAYER
+    model = tf.keras.Sequential(tf.keras.layers.Flatten(input_shape=(image_width, image_height)))
+    model.add(tf.keras.layers.Dense(254, activation='relu'))
+    model.add(tf.keras.layers.Dropout(0.3))
+    model.add(tf.keras.layers.Dense(128, activation='relu'))
+    model.add(tf.keras.layers.Dense(categories, activation='relu'))
+    model.compile(optimizer='adam', loss='categorical_crossentropy',  metrics=['categorical_accuracy'])
 
-    testing_images = load_resize_images("plant-pathology-2021-fgvc8/train_images", 150, 200)
-    classes, test_labels = load_labels("plant-pathology-2021-fgvc8/train.csv", 150, 200)
+    model.fit(train_images[0:250,:,:], train_labels[0:250], epochs=20)
+    print(model.summary())
 
-    results = model.evaluate(testing_images, test_labels, batch_size=64)
-    print("test loss, test acc:", results)
+    # testing_images = load_resize_images("plant-pathology-2021-fgvc8/train_images", 700, 900)
+    # classes, test_labels = load_labels("plant-pathology-2021-fgvc8/train.csv", 700, 900)
+
+    results = model.evaluate(train_images[300:400,:,:], train_labels[300:400], batch_size=64)
+
 
